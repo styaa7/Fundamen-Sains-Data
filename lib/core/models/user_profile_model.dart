@@ -24,6 +24,14 @@ class UserProfile {
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
+    final studentData = json['students'];
+    Map<String, dynamic>? studentMap;
+    if (studentData is List && studentData.isNotEmpty) {
+      studentMap = studentData.first as Map<String, dynamic>?;
+    } else if (studentData is Map<String, dynamic>) {
+      studentMap = studentData;
+    }
+
     return UserProfile(
       id: json['id'] as String,
       role: UserRole.fromString(json['role'] as String?),
@@ -32,8 +40,8 @@ class UserProfile {
       email: json['email'] as String? ?? '',
       phoneNumber: json['phone_number'] as String?,
       avatarUrl: json['avatar_url'] as String?,
-      faculty: json['faculty'] as String?,
-      studyProgram: json['study_program'] as String?,
+      faculty: studentMap?['faculty'] as String? ?? json['faculty'] as String?,
+      studyProgram: studentMap?['study_program'] as String? ?? json['study_program'] as String?,
     );
   }
 

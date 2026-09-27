@@ -26,7 +26,7 @@ class SupabaseService {
   Future<UserProfile?> fetchUserProfile(String userId) async {
     final response = await client
         .from('profiles')
-        .select('*, students(*), lecturers(*)')
+        .select('*, students:students!students_id_fkey(*), lecturers:lecturers!lecturers_id_fkey(*)')
         .eq('id', userId)
         .maybeSingle();
 
