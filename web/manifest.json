@@ -1,0 +1,11 @@
+{
+  "name": "SkripsiFlow",
+  "short_name": "SkripsiFlow",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#4F46E5",
+  "description": "SaaS Bimbingan Skripsi Terstruktur",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false
+}
