@@ -46,8 +46,8 @@ class LecturerDashboardScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 1. Metric Counters
-            Row(
-              children: const [
+            const Row(
+              children: [
                 Expanded(
                   child: _MetricCard(
                     title: 'Mahasiswa',
