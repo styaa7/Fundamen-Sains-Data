@@ -173,6 +173,34 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
                     ),
                   ),
                 )
+              : ((isLecturer || user?.role == UserRole.admin) && _topic!.status == TopicStatus.draft)
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.lock_outline, size: 64, color: AppColors.slate300),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Draf Bersifat Pribadi',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Topik ini masih berupa draf dan hanya dapat dilihat serta diedit oleh mahasiswa yang bersangkutan.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 13, color: AppColors.slate500),
+                            ),
+                            const SizedBox(height: 20),
+                            AppButton(
+                              label: 'Kembali',
+                              onPressed: () => context.pop(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -233,9 +261,9 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.primaryLight.withOpacity(0.4),
+                            color: AppColors.primaryLight.withValues(alpha: 0.4),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                            border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -258,8 +286,57 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
                         const SizedBox(height: 20),
                       ],
 
+                      // Student Action Bar (Draf / Revisi)
+                      if (!isLecturer && (_topic!.status == TopicStatus.draft || _topic!.status == TopicStatus.revision)) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: _topic!.status == TopicStatus.revision ? const Color(0xFFFEF3C7) : const Color(0xFFEEF2FF),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _topic!.status == TopicStatus.revision ? const Color(0xFFFDE68A) : const Color(0xFFC7D2FE),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _topic!.status == TopicStatus.revision ? Icons.edit_note_rounded : Icons.info_outline_rounded,
+                                color: _topic!.status == TopicStatus.revision ? const Color(0xFFD97706) : AppColors.primary,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _topic!.status == TopicStatus.revision
+                                      ? 'Dosen meminta perbaikan pada topik ini. Anda dapat mengedit usulan dan mengajukannya kembali.'
+                                      : 'Pengajuan ini berstatus Draf. Anda dapat melengkapi atau mengubah rincian usulan dan langsung mengajukannya.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _topic!.status == TopicStatus.revision ? const Color(0xFF92400E) : AppColors.slate700,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        AppButton(
+                          label: _topic!.status == TopicStatus.revision ? 'Revisi & Ajukan Ulang Topik' : 'Lanjutkan & Ajukan Draf',
+                          icon: Icons.edit_rounded,
+                          onPressed: () async {
+                            final updated = await context.push('/student/topic/edit/${_topic!.id}', extra: _topic);
+                            if (updated == true || mounted) {
+                              _loadTopicData();
+                            }
+                          },
+                          type: ButtonType.primary,
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+
                       // Lecturer Action Bar
-                      if (isLecturer && (_topic!.status == TopicStatus.submitted || _topic!.status == TopicStatus.underReview || _topic!.status == TopicStatus.draft)) ...[
+                      if (isLecturer && (_topic!.status == TopicStatus.submitted || _topic!.status == TopicStatus.underReview)) ...[
                         const Text('Aksi Review Dosen', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900)),
                         const SizedBox(height: 12),
                         Row(

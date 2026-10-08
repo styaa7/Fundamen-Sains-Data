@@ -35,6 +35,21 @@ enum ConsultationStatus {
         return 'Dibatalkan';
     }
   }
+
+  String get name {
+    switch (this) {
+      case ConsultationStatus.requested:
+        return 'REQUESTED';
+      case ConsultationStatus.confirmed:
+        return 'CONFIRMED';
+      case ConsultationStatus.rejected:
+        return 'REJECTED';
+      case ConsultationStatus.completed:
+        return 'COMPLETED';
+      case ConsultationStatus.cancelled:
+        return 'CANCELLED';
+    }
+  }
 }
 
 class ConsultationNote {

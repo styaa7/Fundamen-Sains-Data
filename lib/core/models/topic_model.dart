@@ -4,7 +4,8 @@ enum TopicStatus {
   underReview,
   revision,
   approved,
-  rejected;
+  rejected,
+  cancelled;
 
   static TopicStatus fromString(String? val) {
     switch (val?.toUpperCase()) {
@@ -18,6 +19,8 @@ enum TopicStatus {
         return TopicStatus.approved;
       case 'REJECTED':
         return TopicStatus.rejected;
+      case 'CANCELLED':
+        return TopicStatus.cancelled;
       case 'DRAFT':
       default:
         return TopicStatus.draft;
@@ -38,6 +41,27 @@ enum TopicStatus {
         return 'Disetujui';
       case TopicStatus.rejected:
         return 'Ditolak';
+      case TopicStatus.cancelled:
+        return 'Dibatalkan / Diganti';
+    }
+  }
+
+  String get name {
+    switch (this) {
+      case TopicStatus.draft:
+        return 'DRAFT';
+      case TopicStatus.submitted:
+        return 'SUBMITTED';
+      case TopicStatus.underReview:
+        return 'UNDER_REVIEW';
+      case TopicStatus.revision:
+        return 'REVISION';
+      case TopicStatus.approved:
+        return 'APPROVED';
+      case TopicStatus.rejected:
+        return 'REJECTED';
+      case TopicStatus.cancelled:
+        return 'CANCELLED';
     }
   }
 }
@@ -109,6 +133,15 @@ class TopicSubmission {
   }
 
   Map<String, dynamic> toJson() {
+    String statusStr;
+    switch (status) {
+      case TopicStatus.underReview:
+        statusStr = 'UNDER_REVIEW';
+        break;
+      default:
+        statusStr = status.name.toUpperCase();
+    }
+
     return {
       'student_id': studentId,
       'lecturer_id': lecturerId,
@@ -119,7 +152,8 @@ class TopicSubmission {
       'research_objective': researchObjective,
       'methodology': methodology,
       'supporting_document_url': supportingDocumentUrl,
-      'status': status.name.toUpperCase(),
+      'status': statusStr,
+      'updated_at': DateTime.now().toIso8601String(),
     };
   }
 }

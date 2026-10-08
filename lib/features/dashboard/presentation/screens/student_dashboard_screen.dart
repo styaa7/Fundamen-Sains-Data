@@ -4,6 +4,11 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/models/consultation_model.dart';
+import '../../../../core/models/thesis_progress_model.dart';
+import '../../../../core/models/topic_model.dart';
+import '../../../../core/models/topic_change_request_model.dart';
+import '../../../../core/utils/app_date_format.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/status_badge.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
@@ -16,37 +21,142 @@ class StudentDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen> {
-  // Interactive To-Do items state
-  final List<Map<String, dynamic>> _todoItems = [
-    {
-      'id': '1',
-      'title': 'Konsultasi Bab 4 dengan Dr. Budi',
-      'subtitle': 'Bahas matriks evaluasi & akurasi model',
-      'isCompleted': true,
-      'priority': 'Tinggi',
-    },
-    {
-      'id': '2',
-      'title': 'Revisi diagram arsitektur model CNN',
-      'subtitle': 'Sesuaikan resolusi layer konvolusi ke 256x256',
-      'isCompleted': false,
-      'priority': 'Tinggi',
-    },
-    {
-      'id': '3',
-      'title': 'Analisis perbandingan kurva Loss & Epoch',
-      'subtitle': 'Tambahkan grafik validation loss pada naskah',
-      'isCompleted': false,
-      'priority': 'Sedang',
-    },
-    {
-      'id': '4',
-      'title': 'Upload draft revisi ke portal sebelum Kamis',
-      'subtitle': 'Format file PDF sesuai template kampus',
-      'isCompleted': false,
-      'priority': 'Sedang',
-    },
-  ];
+  TopicSubmission? _latestTopic;
+  Thesis? _studentThesis;
+  TopicChangeRequest? _activeChangeRequest;
+  List<Consultation> _consultations = [];
+  bool _hasApprovedTopic = false;
+  double _overallProgress = 0.0;
+  int _currentStageOrder = 1;
+  bool _isLoadingTopic = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLatestTopic();
+  }
+
+  Future<void> _loadLatestTopic() async {
+    final auth = ref.read(authControllerProvider);
+    final user = auth.userProfile;
+    final service = ref.read(supabaseServiceProvider);
+
+    try {
+      final topics = await service.fetchTopics(studentId: user?.id);
+      Thesis? thesis;
+      TopicChangeRequest? changeRequest;
+      List<Consultation> consults = [];
+      if (user?.id != null) {
+        thesis = await service.fetchStudentThesis(user!.id);
+        changeRequest = await service.fetchActiveTopicChangeRequest(user.id);
+        consults = await service.fetchConsultations(studentId: user.id);
+      }
+
+      final hasApproved = topics.any((t) => t.status == TopicStatus.approved) || (thesis != null);
+
+      if (mounted) {
+        setState(() {
+          _studentThesis = thesis;
+          _activeChangeRequest = changeRequest;
+          _hasApprovedTopic = hasApproved;
+          _latestTopic = topics.isNotEmpty ? topics.first : null;
+          _consultations = consults;
+          _isLoadingTopic = false;
+          _syncStageWithThesisAndTopic();
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isLoadingTopic = false;
+        });
+      }
+    }
+  }
+
+  void _syncStageWithThesisAndTopic() {
+    if (_studentThesis != null) {
+      _overallProgress = _studentThesis!.overallProgressPercentage;
+      _currentStageOrder = _studentThesis!.currentStageOrder;
+      for (final st in _studentThesis!.stages) {
+        if (st.stageOrder >= 1 && st.stageOrder <= _stages.length) {
+          final idx = st.stageOrder - 1;
+          switch (st.status) {
+            case StageStatus.completed:
+              _stages[idx]['status'] = 'COMPLETED';
+              _stages[idx]['desc'] = st.studentNotes ?? 'Tahap ini telah disetujui Dosen Pembimbing.';
+              break;
+            case StageStatus.inProgress:
+              _stages[idx]['status'] = 'IN_PROGRESS';
+              _stages[idx]['desc'] = st.studentNotes ?? 'Sedang pengerjaan. Menunggu persetujuan dosen untuk lanjut.';
+              break;
+            case StageStatus.notStarted:
+              _stages[idx]['status'] = 'NOT_STARTED';
+              _stages[idx]['desc'] = 'Tahap terkunci hingga tahap sebelumnya disetujui dosen.';
+              break;
+          }
+        }
+      }
+      _selectedStageIndex = (_currentStageOrder - 1).clamp(0, _stages.length - 1);
+    } else if (_latestTopic != null) {
+      switch (_latestTopic!.status) {
+        case TopicStatus.approved:
+          _overallProgress = 12.5;
+          _currentStageOrder = 2;
+          _stages[0]['status'] = 'COMPLETED';
+          _stages[0]['desc'] = 'Topik disetujui Dosen Pembimbing.';
+          _stages[1]['status'] = 'IN_PROGRESS';
+          _stages[1]['desc'] = 'Penyusunan proposal skripsi. Memerlukan persetujuan dosen untuk lanjut ke Sempro.';
+          for (int i = 2; i < _stages.length; i++) {
+            _stages[i]['status'] = 'NOT_STARTED';
+            _stages[i]['desc'] = 'Terkunci hingga tahap sebelumnya disetujui.';
+          }
+          _selectedStageIndex = 1;
+          break;
+        case TopicStatus.submitted:
+        case TopicStatus.underReview:
+        case TopicStatus.revision:
+          _overallProgress = 0.0;
+          _currentStageOrder = 1;
+          _stages[0]['status'] = 'IN_PROGRESS';
+          _stages[0]['desc'] = 'Pengajuan topik sedang dalam proses review dosen.';
+          for (int i = 1; i < _stages.length; i++) {
+            _stages[i]['status'] = 'NOT_STARTED';
+            _stages[i]['desc'] = 'Terkunci hingga usulan topik disetujui.';
+          }
+          _selectedStageIndex = 0;
+          break;
+        case TopicStatus.draft:
+        case TopicStatus.rejected:
+        case TopicStatus.cancelled:
+          _overallProgress = 0.0;
+          _currentStageOrder = 1;
+          _stages[0]['status'] = 'NOT_STARTED';
+          _stages[0]['desc'] = _latestTopic!.status == TopicStatus.draft
+              ? 'Draf topik tersimpan, silakan kirim pengajuan.'
+              : (_latestTopic!.status == TopicStatus.cancelled
+                  ? 'Topik sebelumnya dibatalkan / diganti. Silakan ajukan topik baru.'
+                  : 'Topik ditolak, silakan ajukan topik baru.');
+          for (int i = 1; i < _stages.length; i++) {
+            _stages[i]['status'] = 'NOT_STARTED';
+            _stages[i]['desc'] = 'Terkunci hingga usulan topik disetujui.';
+          }
+          _selectedStageIndex = 0;
+          break;
+      }
+    } else {
+      _overallProgress = 0.0;
+      _currentStageOrder = 1;
+      for (int i = 0; i < _stages.length; i++) {
+        _stages[i]['status'] = 'NOT_STARTED';
+        _stages[i]['desc'] = i == 0 ? 'Belum ada pengajuan usulan topik.' : 'Terkunci hingga topik disetujui.';
+      }
+      _selectedStageIndex = 0;
+    }
+  }
+
+  // Interactive To-Do items state (stored in session)
+  final List<Map<String, dynamic>> _todoItems = [];
 
   // Daily tips
   final List<String> _tips = [
@@ -58,17 +168,17 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
   int _currentTipIndex = 0;
 
   // Selected stage preview in hero card
-  int _selectedStageIndex = 4; // 0-indexed (Tahap 5)
+  int _selectedStageIndex = 0; // 0-indexed (Tahap 1)
 
   final List<Map<String, dynamic>> _stages = [
-    {'order': 1, 'name': 'Pengajuan Topik', 'status': 'COMPLETED', 'desc': 'Topik disetujui Dosen Pembimbing'},
-    {'order': 2, 'name': 'Proposal Skripsi', 'status': 'COMPLETED', 'desc': 'Penyusunan Bab 1-3 selesai'},
-    {'order': 3, 'name': 'Seminar Proposal', 'status': 'COMPLETED', 'desc': 'Sempro dinyatakan Lulus (Nilai: A)'},
-    {'order': 4, 'name': 'Pengumpulan Data', 'status': 'COMPLETED', 'desc': 'Dataset citra terkumpul 1.200 sampel'},
-    {'order': 5, 'name': 'Analisis Data', 'status': 'IN_PROGRESS', 'desc': 'Training model CNN & tuning hyperparameter'},
-    {'order': 6, 'name': 'Penyusunan Naskah', 'status': 'NOT_STARTED', 'desc': 'Penulisan Bab 4 Hasil & Bab 5 Kesimpulan'},
-    {'order': 7, 'name': 'Seminar Hasil', 'status': 'NOT_STARTED', 'desc': 'Presentasi hasil penelitian skripsi'},
-    {'order': 8, 'name': 'Sidang Akhir', 'status': 'NOT_STARTED', 'desc': 'Ujian pendadaran & yudisium kelulusan'},
+    {'order': 1, 'name': 'Pengajuan Topik', 'status': 'NOT_STARTED', 'desc': 'Belum ada pengajuan usulan topik.'},
+    {'order': 2, 'name': 'Proposal Skripsi', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga usulan topik disetujui.'},
+    {'order': 3, 'name': 'Seminar Proposal', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga proposal disetujui.'},
+    {'order': 4, 'name': 'Pengumpulan Data', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga seminar proposal lulus.'},
+    {'order': 5, 'name': 'Analisis Data', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga pengumpulan data selesai.'},
+    {'order': 6, 'name': 'Penyusunan Naskah', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga analisis data selesai.'},
+    {'order': 7, 'name': 'Seminar Hasil', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga naskah skripsi disetujui.'},
+    {'order': 8, 'name': 'Sidang Akhir', 'status': 'NOT_STARTED', 'desc': 'Terkunci hingga seminar hasil selesai.'},
   ];
 
   String _getGreeting() {
@@ -77,6 +187,232 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
     if (hour < 15) return 'Selamat Siang 🌤️';
     if (hour < 18) return 'Selamat Sore 🌇';
     return 'Selamat Malam 🌙';
+  }
+
+  void _showRequestTopicChangeModal() {
+    final reasonController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool isSubmitting = false;
+
+    final currentTitle = _latestTopic?.title ?? _studentThesis?.title ?? 'Topik Skripsi Saat Ini';
+    final lecturerName = _latestTopic?.lecturerName ?? 'Dosen Pembimbing';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppColors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.slate300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.warningLight,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.swap_horiz_rounded, color: AppColors.warning, size: 22),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Permohonan Pergantian Topik',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.slate900),
+                            ),
+                            Text(
+                              'Ajukan permohonan ke dosen untuk ganti judul',
+                              style: TextStyle(fontSize: 11, color: AppColors.slate500),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Current Topic Info Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.slate50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Topik Skripsi Saat Ini (Disetujui):',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.slate500),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          currentTitle,
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Dosen Pembimbing: $lecturerName',
+                          style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Alasan Mengapa Ganti Topik *',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                  ),
+                  const SizedBox(height: 6),
+                  TextFormField(
+                    controller: reasonController,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: 'Jelaskan secara rinci alasan dan kendala mengapa Anda ingin mengganti topik skripsi ini (misal: keterbatasan data, perubahan metodologi, dll)...',
+                      hintStyle: const TextStyle(fontSize: 12, color: AppColors.slate400),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Alasan ganti topik wajib diisi';
+                      }
+                      if (val.trim().length < 15) {
+                        return 'Alasan harus diisi minimal 15 karakter';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  const Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 14, color: AppColors.slate500),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Setelah disetujui dosen, fitur pengajuan topik baru akan aktif kembali.',
+                          style: TextStyle(fontSize: 11, color: AppColors.slate500),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+                        child: const Text('Batal', style: TextStyle(color: AppColors.slate500)),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                if (formKey.currentState?.validate() ?? false) {
+                                  setModalState(() => isSubmitting = true);
+                                  try {
+                                    final auth = ref.read(authControllerProvider);
+                                    final user = auth.userProfile;
+                                    final service = ref.read(supabaseServiceProvider);
+
+                                    final lecturerId = _latestTopic?.lecturerId ??
+                                        _studentThesis?.lecturerId ??
+                                        '';
+
+                                    await service.submitTopicChangeRequest(
+                                      studentId: user?.id ?? '',
+                                      lecturerId: lecturerId,
+                                      reason: reasonController.text.trim(),
+                                      thesisId: _studentThesis?.id,
+                                      currentTopicId: _latestTopic?.id,
+                                    );
+
+                                    if (context.mounted) {
+                                      Navigator.pop(ctx);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: const Row(
+                                            children: [
+                                              Icon(Icons.check_circle_rounded, color: AppColors.white, size: 18),
+                                              SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text('Permohonan pergantian topik berhasil dikirim ke dosen!'),
+                                              ),
+                                            ],
+                                          ),
+                                          backgroundColor: AppColors.success,
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      );
+                                      _loadLatestTopic();
+                                    }
+                                  } catch (e) {
+                                    setModalState(() => isSubmitting = false);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Gagal mengirim permohonan: $e'),
+                                          backgroundColor: AppColors.danger,
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                }
+                              },
+                        icon: isSubmitting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(color: AppColors.white, strokeWidth: 2),
+                              )
+                            : const Icon(Icons.send_rounded, size: 16),
+                        label: Text(isSubmitting ? 'Mengirim...' : 'Kirim Permohonan'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showAddTodoDialog() {
@@ -281,7 +617,28 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.verified_user_outlined, size: 16, color: AppColors.primary),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Persetujuan Dosen: Roadmap hanya dapat dilanjutkan setelah diverifikasi & disetujui oleh Dosen Pembimbing Anda.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF1E40AF), height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -307,7 +664,10 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
 
   Future<void> _handleRefresh() async {
     HapticFeedback.lightImpact();
-    await Future.delayed(const Duration(milliseconds: 700));
+    await Future.wait([
+      _loadLatestTopic(),
+      Future.delayed(const Duration(milliseconds: 700)),
+    ]);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -466,16 +826,6 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
               // 3. QUICK ACTIONS GRID
               _buildSectionHeader(
                 title: 'Akses Cepat',
-                actionText: 'Panduan',
-                onActionTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Gunakan fitur akses cepat untuk percepatan administrasi skripsi Anda.'),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  );
-                },
               ),
               const SizedBox(height: 12),
               _buildQuickActionsGrid()
@@ -514,9 +864,20 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
 
               // 6. TOPIK SKRIPSI CARD
               _buildSectionHeader(
-                title: 'Topik Skripsi Aktif',
-                actionText: 'Detail',
-                onActionTap: () => context.push('/student/topic'),
+                title: _hasApprovedTopic
+                    ? 'Topik Skripsi Aktif (Disetujui)'
+                    : (_latestTopic == null ? 'Pengajuan Topik Skripsi' : 'Topik Skripsi'),
+                actionText: _hasApprovedTopic ? 'Semua Topik' : (_latestTopic == null ? '+ Ajukan Baru' : 'Semua Topik'),
+                onActionTap: () async {
+                  if (_hasApprovedTopic) {
+                    await context.push('/student/topic');
+                  } else if (_latestTopic == null) {
+                    await context.push('/student/topic/new');
+                  } else {
+                    await context.push('/student/topic');
+                  }
+                  _loadLatestTopic();
+                },
               ),
               const SizedBox(height: 10),
               _buildThesisTopicCard()
@@ -680,14 +1041,14 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                         color: const Color.fromRGBO(255, 255, 255, 0.22),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.bolt_rounded, color: Color(0xFFFDE047), size: 14),
-                          SizedBox(width: 2),
+                          const Icon(Icons.bolt_rounded, color: Color(0xFFFDE047), size: 14),
+                          const SizedBox(width: 2),
                           Text(
-                            '62.5%',
-                            style: TextStyle(
+                            '${_overallProgress.toStringAsFixed(1)}%',
+                            style: const TextStyle(
                               color: AppColors.white,
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
@@ -709,7 +1070,7 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                     color: const Color.fromRGBO(255, 255, 255, 0.2),
                     child: FractionallySizedBox(
                       alignment: Alignment.centerLeft,
-                      widthFactor: 0.625,
+                      widthFactor: (_overallProgress / 100.0).clamp(0.01, 1.0),
                       child: Container(
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
@@ -728,16 +1089,16 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
+                        const Text(
                           'Tahapan Pengerjaan (Tap untuk info):',
                           style: TextStyle(color: Color.fromRGBO(255, 255, 255, 0.8), fontSize: 11),
                         ),
                         Text(
-                          'Tahap 5 dari 8',
-                          style: TextStyle(color: AppColors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                          _overallProgress >= 100.0 ? 'Selesai (8 dari 8)' : 'Tahap $_currentStageOrder dari 8',
+                          style: const TextStyle(color: AppColors.white, fontSize: 11, fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
@@ -871,12 +1232,20 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
 
   // 2. STATS PILLS ROW
   Widget _buildStatsRow() {
+    final consultationCount = _consultations.length;
+    final revisionCount = _latestTopic?.revisionCount ?? 0;
+    final stageText = _studentThesis != null
+        ? 'Tahap $_currentStageOrder/8'
+        : (_hasApprovedTopic
+            ? 'Tahap 2/8'
+            : (_latestTopic != null ? 'Tahap 1/8' : 'Tahap 0/8'));
+
     return Row(
       children: [
         Expanded(
           child: _buildMetricTile(
             label: 'Konsultasi',
-            value: '6 Sesi',
+            value: '$consultationCount Sesi',
             icon: Icons.event_available_rounded,
             color: AppColors.primary,
             onTap: () => context.push('/student/consultation'),
@@ -886,7 +1255,7 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
         Expanded(
           child: _buildMetricTile(
             label: 'Revisi Selesai',
-            value: '4 Catatan',
+            value: '$revisionCount Catatan',
             icon: Icons.task_alt_rounded,
             color: AppColors.success,
             onTap: () => context.push('/student/consultation'),
@@ -895,9 +1264,9 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
         const SizedBox(width: 8),
         Expanded(
           child: _buildMetricTile(
-            label: 'Target Sidang',
-            value: '45 Hari',
-            icon: Icons.timer_outlined,
+            label: 'Progres Skripsi',
+            value: stageText,
+            icon: Icons.flag_outlined,
             color: AppColors.accent,
             onTap: () => context.push('/student/progress'),
           ),
@@ -960,18 +1329,14 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
         'title': 'Pengajuan Topik',
         'shortTitle': 'Topik',
         'icon': Icons.description_outlined,
-        'badge': 'ACC',
-        'badgeColor': AppColors.success,
         'color': const Color(0xFF4F46E5),
         'bg': const Color(0xFFEEF2FF),
-        'route': '/student/topic',
+        'route': (_hasApprovedTopic || _latestTopic != null) ? '/student/topic' : '/student/topic/new',
       },
       {
         'title': 'Jadwal Bimbingan',
         'shortTitle': 'Jadwal',
         'icon': Icons.calendar_month_rounded,
-        'badge': '1 Baru',
-        'badgeColor': AppColors.info,
         'color': const Color(0xFF0284C7),
         'bg': const Color(0xFFF0F9FF),
         'route': '/student/consultation',
@@ -980,8 +1345,6 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
         'title': 'Booking Konsul',
         'shortTitle': 'Booking',
         'icon': Icons.add_circle_outline_rounded,
-        'badge': null,
-        'badgeColor': AppColors.accent,
         'color': const Color(0xFF7C3AED),
         'bg': const Color(0xFFF5F3FF),
         'route': '/student/consultation/book',
@@ -990,8 +1353,6 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
         'title': 'Roadmap Progres',
         'shortTitle': 'Roadmap',
         'icon': Icons.timeline_rounded,
-        'badge': 'Tahap 5',
-        'badgeColor': AppColors.warning,
         'color': const Color(0xFFD97706),
         'bg': const Color(0xFFFFFBEB),
         'route': '/student/progress',
@@ -1003,7 +1364,6 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: actions.map((a) {
-          final hasBadge = a['badge'] != null;
           return Expanded(
             child: InkWell(
               onTap: () {
@@ -1016,50 +1376,23 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: a['bg'] as Color,
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (a['color'] as Color).withValues(alpha: 0.12),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: a['bg'] as Color,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (a['color'] as Color).withValues(alpha: 0.12),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
                           ),
-                          child: Center(
-                            child: Icon(a['icon'] as IconData, color: a['color'] as Color, size: 22),
-                          ),
-                        ),
-                        if (hasBadge)
-                          Positioned(
-                            top: -4,
-                            right: -6,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                              decoration: BoxDecoration(
-                                color: a['badgeColor'] as Color,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.white, width: 1.5),
-                              ),
-                              child: Text(
-                                a['badge'] as String,
-                                style: const TextStyle(
-                                  color: AppColors.white,
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
+                        ],
+                      ),
+                      child: Center(
+                        child: Icon(a['icon'] as IconData, color: a['color'] as Color, size: 22),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -1085,6 +1418,73 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
 
   // 4. UPCOMING CONSULTATION CARD
   Widget _buildUpcomingConsultationCard() {
+    final upcomingList = _consultations.where((c) =>
+        c.status == ConsultationStatus.confirmed ||
+        c.status == ConsultationStatus.requested).toList();
+
+    if (upcomingList.isEmpty) {
+      return AppCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: AppColors.slate100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.event_busy_rounded, color: AppColors.slate400, size: 22),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Belum Ada Jadwal Bimbingan',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Jadwalkan sesi bimbingan dengan dosen pembimbing Anda.',
+                        style: TextStyle(fontSize: 11, color: AppColors.slate500),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+                onPressed: () => context.push('/student/consultation/book'),
+                icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                label: const Text('Jadwalkan Bimbingan Baru', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final upcoming = upcomingList.first;
+    final dateStr = AppDateFormat.formatFull(upcoming.scheduledStart);
+    final timeStr = '${AppDateFormat.formatTime(upcoming.scheduledStart)} - ${AppDateFormat.formatTime(upcoming.scheduledEnd)} WIB';
+    final lecturerName = upcoming.lecturerName?.isNotEmpty == true ? upcoming.lecturerName! : 'Dosen Pembimbing';
+
     return AppCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1104,23 +1504,23 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                 ),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Dr. Budi Santoso, M.Kom.',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900),
+                      lecturerName,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900),
                     ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Dosen Pembimbing Utama • NIDN: 0412088201',
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Dosen Pembimbing Utama',
                       style: TextStyle(fontSize: 11, color: AppColors.slate500),
                     ),
                   ],
                 ),
               ),
-              StatusBadge.fromStatus('CONFIRMED'),
+              StatusBadge.fromStatus(upcoming.status.name),
             ],
           ),
           const SizedBox(height: 14),
@@ -1131,49 +1531,36 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.border),
             ),
-            child: const Column(
+            child: Column(
               children: [
                 Row(
                   children: [
-                    Icon(Icons.calendar_today_rounded, size: 14, color: AppColors.primary),
-                    SizedBox(width: 8),
-                    Text(
-                      'Kamis, 28 September 2026',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.slate800),
-                    ),
-                    Spacer(),
-                    Icon(Icons.access_time_rounded, size: 14, color: AppColors.slate400),
-                    SizedBox(width: 6),
-                    Text(
-                      '10:00 - 11:00 WIB',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.slate800),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.location_on_outlined, size: 14, color: AppColors.slate500),
-                    SizedBox(width: 8),
+                    const Icon(Icons.calendar_today_rounded, size: 14, color: AppColors.primary),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Ruang Dosen 302 / Google Meet (Hybrid)',
-                        style: TextStyle(fontSize: 11, color: AppColors.slate600),
+                        dateStr,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.slate800),
                       ),
                     ),
+                    const Icon(Icons.access_time_rounded, size: 14, color: AppColors.slate400),
+                    const SizedBox(width: 6),
+                    Text(
+                      timeStr,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.slate800),
+                    ),
                   ],
                 ),
-                Divider(height: 16),
+                const Divider(height: 16),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.article_outlined, size: 14, color: AppColors.slate500),
-                    SizedBox(width: 8),
+                    const Icon(Icons.article_outlined, size: 14, color: AppColors.slate500),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Agenda: Evaluasi Algoritma dan Matriks Konfusi Bab 4',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.slate700),
+                        'Agenda: ${upcoming.agenda.isNotEmpty ? upcoming.agenda : 'Konsultasi Bimbingan'}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.slate700),
                       ),
                     ),
                   ],
@@ -1193,27 +1580,9 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  onPressed: () {
-                    Clipboard.setData(const ClipboardData(text: 'https://meet.google.com/skripsi-budi-bimbingan'));
-                    HapticFeedback.lightImpact();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Row(
-                          children: [
-                            Icon(Icons.copy_rounded, color: AppColors.white, size: 16),
-                            SizedBox(width: 8),
-                            Text('Tautan Google Meet disalin ke clipboard! 📋'),
-                          ],
-                        ),
-                        backgroundColor: AppColors.slate800,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.copy_rounded, size: 15),
-                  label: const Text('Salin Link Meet', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  onPressed: () => context.push('/student/consultation'),
+                  icon: const Icon(Icons.calendar_today_rounded, size: 15),
+                  label: const Text('Detail Jadwal', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1240,6 +1609,58 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
 
   // 5. INTERACTIVE THESIS TO-DO & ACTION ITEMS
   Widget _buildInteractiveTodoList() {
+    if (_todoItems.isEmpty) {
+      return AppCard(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                color: AppColors.slate100,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.checklist_rtl_rounded, size: 28, color: AppColors.slate400),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Belum Ada Target Catatan Skripsi',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.slate800),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Buat target mandiri seperti rencana revisi bab atau pengumpulan data.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: AppColors.slate500),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: _showAddTodoDialog,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add_rounded, size: 16, color: AppColors.primary),
+                    SizedBox(width: 6),
+                    Text(
+                      'Tambah Rencana / Target Baru',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return AppCard(
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -1354,13 +1775,111 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
 
   // 6. THESIS TOPIC CARD
   Widget _buildThesisTopicCard() {
+    if (_isLoadingTopic) {
+      return const AppCard(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+            ),
+            SizedBox(width: 12),
+            Text('Memeriksa status pengajuan topik skripsi...', style: TextStyle(fontSize: 12, color: AppColors.slate500)),
+          ],
+        ),
+      );
+    }
+
+    if (_latestTopic == null) {
+      return AppCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.post_add_rounded, color: AppColors.primary, size: 24),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Belum Ada Pengajuan Topik',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Mulai ajukan usulan judul dan topik skripsi Anda untuk ditinjau oleh calon dosen pembimbing.',
+                        style: TextStyle(fontSize: 11, color: AppColors.slate500, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: () async {
+                      await context.push('/student/topic/new');
+                      _loadLatestTopic();
+                    },
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text('Ajukan Topik Sekarang', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.slate700,
+                    side: const BorderSide(color: AppColors.border),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  ),
+                  onPressed: () async {
+                    await context.push('/student/topic');
+                    _loadLatestTopic();
+                  },
+                  child: const Text('Daftar Topik', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    final topic = _latestTopic!;
     return AppCard(
-      onTap: () => context.push('/student/topic'),
+      onTap: () async {
+        await context.push('/student/topic/detail/${topic.id}');
+        _loadLatestTopic();
+      },
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
@@ -1371,18 +1890,18 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                 child: const Icon(Icons.auto_stories_rounded, color: AppColors.primary, size: 22),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Bidang: Kecerdasan Buatan & Citra Medis',
-                      style: TextStyle(fontSize: 11, color: AppColors.slate500, fontWeight: FontWeight.w500),
+                      topic.lecturerName != null ? 'Pembimbing: ${topic.lecturerName}' : 'Calon Pembimbing Ditentukan',
+                      style: const TextStyle(fontSize: 11, color: AppColors.slate500, fontWeight: FontWeight.w500),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'Sistem Klasifikasi Citra Medis X-Ray Menggunakan Convolutional Neural Network',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate900, height: 1.3),
+                      topic.title,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate900, height: 1.3),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1390,18 +1909,18 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              StatusBadge.fromStatus('APPROVED'),
+              StatusBadge.fromStatus(topic.status.name.toUpperCase()),
             ],
           ),
           const Divider(height: 20),
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'SK Pembimbing: 142/UN.FST/SK/2026',
-                style: TextStyle(fontSize: 11, color: AppColors.slate500),
+                'Status: ${topic.status.label}',
+                style: const TextStyle(fontSize: 11, color: AppColors.slate500, fontWeight: FontWeight.w500),
               ),
-              Row(
+              const Row(
                 children: [
                   Text(
                     'Detail Pengajuan',
@@ -1413,6 +1932,155 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
               ),
             ],
           ),
+          if (topic.status == TopicStatus.draft || topic.status == TopicStatus.revision) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: topic.status == TopicStatus.revision ? AppColors.warning : AppColors.primary,
+                  foregroundColor: AppColors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+                onPressed: () async {
+                  await context.push('/student/topic/edit/${topic.id}', extra: topic);
+                  _loadLatestTopic();
+                },
+                icon: const Icon(Icons.edit_note_rounded, size: 16),
+                label: Text(
+                  topic.status == TopicStatus.revision ? 'Revisi & Ajukan Ulang Topik' : 'Lanjutkan & Ajukan Draf',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ] else if (topic.status == TopicStatus.approved) ...[
+            const SizedBox(height: 12),
+            if (_activeChangeRequest != null && _activeChangeRequest!.isPending) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warningLight.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.warning.withValues(alpha: 0.5)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.hourglass_top_rounded, size: 16, color: AppColors.warning),
+                        SizedBox(width: 6),
+                        Text(
+                          'Permohonan Ganti Topik Sedang Ditinjau',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.warning),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Alasan: "${_activeChangeRequest!.reason}"',
+                      style: const TextStyle(fontSize: 11, color: AppColors.slate700, fontStyle: FontStyle.italic),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Pengajuan judul baru dinonaktifkan sementara hingga permohonan disetujui dosen pembimbing.',
+                      style: TextStyle(fontSize: 10.5, color: AppColors.slate500),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (_activeChangeRequest != null && _activeChangeRequest!.isRejected) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.dangerLight.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.cancel_outlined, size: 16, color: AppColors.danger),
+                        SizedBox(width: 6),
+                        Text(
+                          'Permohonan Ganti Topik Ditolak Dosen',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.danger),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Catatan dosen: "${_activeChangeRequest!.lecturerResponse ?? '-'}"',
+                      style: const TextStyle(fontSize: 11, color: AppColors.slate700),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.warning,
+                          side: const BorderSide(color: AppColors.warning),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        onPressed: _showRequestTopicChangeModal,
+                        icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+                        label: const Text('Ajukan Pergantian Topik Lagi', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.slate50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.slate500),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Pengajuan topik baru dinonaktifkan karena judul telah disetujui.',
+                            style: TextStyle(fontSize: 11, color: AppColors.slate600),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        onPressed: _showRequestTopicChangeModal,
+                        icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+                        label: const Text('Ajukan Pergantian Topik ke Dosen', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ],
       ),
     );

@@ -6,6 +6,7 @@ class AppColors {
   static const Color primaryDark = Color(0xFF4338CA); // Indigo 700
   static const Color primaryLight = Color(0xFFEEF2FF); // Indigo 50
   static const Color accent = Color(0xFF7C3AED); // Violet 600
+  static const Color accentLight = Color(0xFFF5F3FF); // Violet 50
 
   // Neutral Colors
   static const Color slate900 = Color(0xFF0F172A);

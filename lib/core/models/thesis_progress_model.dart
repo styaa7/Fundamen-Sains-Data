@@ -25,6 +25,17 @@ enum StageStatus {
         return 'Selesai';
     }
   }
+
+  String get name {
+    switch (this) {
+      case StageStatus.notStarted:
+        return 'NOT_STARTED';
+      case StageStatus.inProgress:
+        return 'IN_PROGRESS';
+      case StageStatus.completed:
+        return 'COMPLETED';
+    }
+  }
 }
 
 class ThesisProgressStage {

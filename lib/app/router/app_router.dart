@@ -1,8 +1,11 @@
 import 'package:go_router/go_router.dart';
+import '../../core/models/topic_model.dart';
 import '../../features/auth/presentation/screens/splash_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/dashboard/presentation/screens/student_dashboard_screen.dart';
 import '../../features/dashboard/presentation/screens/lecturer_dashboard_screen.dart';
+import '../../features/dashboard/presentation/screens/lecturer_students_screen.dart';
+import '../../features/dashboard/presentation/screens/lecturer_student_detail_screen.dart';
 import '../../features/dashboard/presentation/screens/admin_dashboard_screen.dart';
 import '../../features/topic/presentation/screens/topic_form_screen.dart';
 import '../../features/topic/presentation/screens/topic_detail_screen.dart';
@@ -12,6 +15,9 @@ import '../../features/consultation/presentation/screens/consultation_list_scree
 import '../../features/progress/presentation/screens/progress_timeline_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/notifications/presentation/screens/notification_center_screen.dart';
+import '../../features/admin/presentation/screens/admin_users_screen.dart';
+import '../../features/admin/presentation/screens/admin_topics_screen.dart';
+import '../../features/admin/presentation/screens/admin_theses_overview_screen.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
@@ -36,7 +42,17 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/student/topic/new',
-      builder: (context, state) => const TopicFormScreen(),
+      builder: (context, state) => TopicFormScreen(
+        topicId: state.uri.queryParameters['id'],
+        initialTopic: state.extra is TopicSubmission ? state.extra as TopicSubmission : null,
+      ),
+    ),
+    GoRoute(
+      path: '/student/topic/edit/:id',
+      builder: (context, state) => TopicFormScreen(
+        topicId: state.pathParameters['id'],
+        initialTopic: state.extra is TopicSubmission ? state.extra as TopicSubmission : null,
+      ),
     ),
     GoRoute(
       path: '/student/topic/detail/:id',
@@ -78,7 +94,14 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/lecturer/students',
-      builder: (context, state) => const ProgressTimelineScreen(),
+      builder: (context, state) => const LecturerStudentsScreen(),
+    ),
+    GoRoute(
+      path: '/lecturer/students/detail',
+      builder: (context, state) {
+        final thesis = state.extra as Map<String, dynamic>;
+        return LecturerStudentDetailScreen(thesis: thesis);
+      },
     ),
     GoRoute(
       path: '/lecturer/profile',
@@ -93,6 +116,18 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/admin/dashboard',
       builder: (context, state) => const AdminDashboardScreen(),
+    ),
+    GoRoute(
+      path: '/admin/users',
+      builder: (context, state) => const AdminUsersScreen(),
+    ),
+    GoRoute(
+      path: '/admin/topics',
+      builder: (context, state) => const AdminTopicsScreen(),
+    ),
+    GoRoute(
+      path: '/admin/theses',
+      builder: (context, state) => const AdminThesesOverviewScreen(),
     ),
   ],
 );
