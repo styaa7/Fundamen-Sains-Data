@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/models/topic_model.dart';
 import '../../../../core/models/user_role.dart';
+import '../../../../core/utils/app_date_format.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/loading_shimmer.dart';
 import '../../../../core/widgets/status_badge.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
 
@@ -19,9 +21,57 @@ class TopicDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
-  bool _isLoading = false;
+  TopicSubmission? _topic;
+  bool _isLoadingTopic = true;
+  bool _isActionLoading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTopicData();
+  }
+
+  Future<void> _loadTopicData() async {
+    setState(() {
+      _isLoadingTopic = true;
+      _errorMessage = null;
+    });
+
+    final service = ref.read(supabaseServiceProvider);
+
+    try {
+      TopicSubmission? loadedTopic;
+      if (widget.topicId.isNotEmpty && widget.topicId != 'demo-topic-id') {
+        loadedTopic = await service.fetchTopicById(widget.topicId);
+      }
+
+      // If not found or demo-id, fetch the first available topic
+      if (loadedTopic == null) {
+        final list = await service.fetchTopics();
+        if (list.isNotEmpty) {
+          loadedTopic = list.first;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _topic = loadedTopic;
+          _isLoadingTopic = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoadingTopic = false;
+        });
+      }
+    }
+  }
 
   Future<void> _handleLecturerReview(String action) async {
+    if (_topic == null) return;
     final feedbackController = TextEditingController();
 
     final confirm = await showDialog<bool>(
@@ -31,27 +81,34 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Berikan catatan atau feedback untuk mahasiswa:'),
+            const Text('Berikan catatan atau feedback untuk mahasiswa:'),
             const SizedBox(height: 12),
             TextField(
               controller: feedbackController,
               maxLines: 3,
-              decoration: const InputDecoration(hintText: 'Tuliskan catatan evaluasi di sini...'),
+              decoration: const InputDecoration(
+                hintText: 'Tuliskan catatan evaluasi di sini...',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim Review')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Kirim Review'),
+          ),
         ],
       ),
     );
 
-    if (confirm == true) {
-      setState(() => _isLoading = true);
+    if (confirm == true && mounted) {
+      setState(() => _isActionLoading = true);
       try {
         await ref.read(supabaseServiceProvider).reviewTopic(
-              topicId: widget.topicId,
+              topicId: _topic!.id,
               action: action,
               feedback: feedbackController.text.trim(),
             );
@@ -59,7 +116,7 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(backgroundColor: AppColors.success, content: Text('Review $action berhasil disimpan')),
           );
-          context.pop();
+          _loadTopicData();
         }
       } catch (e) {
         if (mounted) {
@@ -68,7 +125,7 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
           );
         }
       } finally {
-        if (mounted) setState(() => _isLoading = false);
+        if (mounted) setState(() => _isActionLoading = false);
       }
     }
   }
@@ -83,90 +140,162 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
       appBar: AppBar(
         title: const Text('Detail Pengajuan Topik', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Card
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: _isLoadingTopic
+          ? const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: LoadingShimmer(),
+            )
+          : _topic == null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.description_outlined, size: 64, color: AppColors.slate300),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Pengajuan Topik Tidak Ditemukan',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _errorMessage ?? 'Belum ada data pengajuan topik yang tersimpan.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 13, color: AppColors.slate500),
+                        ),
+                        const SizedBox(height: 20),
+                        AppButton(
+                          label: 'Kembali',
+                          onPressed: () => context.pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      StatusBadge.fromStatus('SUBMITTED'),
-                      const Text('27 September 2026', style: TextStyle(fontSize: 11, color: AppColors.slate400)),
+                      // Header Card
+                      AppCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                StatusBadge.fromStatus(_topic!.status.name.toUpperCase()),
+                                Text(AppDateFormat.formatDateTime(_topic!.createdAt), style: const TextStyle(fontSize: 11, color: AppColors.slate400)),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _topic!.title,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.slate900),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Oleh: ${_topic!.studentName ?? "Mahasiswa Bimbingan"}',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Content Sections
+                      _DetailSection(
+                        title: 'Latar Belakang',
+                        content: _topic!.background.isNotEmpty ? _topic!.background : '-',
+                      ),
+                      const SizedBox(height: 12),
+                      _DetailSection(
+                        title: 'Rumusan Masalah',
+                        content: _topic!.problemFormulation.isNotEmpty ? _topic!.problemFormulation : '-',
+                      ),
+                      const SizedBox(height: 12),
+                      _DetailSection(
+                        title: 'Tujuan Penelitian',
+                        content: _topic!.researchObjective.isNotEmpty ? _topic!.researchObjective : '-',
+                      ),
+                      const SizedBox(height: 12),
+                      _DetailSection(
+                        title: 'Rencana Metodologi',
+                        content: _topic!.methodology.isNotEmpty ? _topic!.methodology : '-',
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Lecturer Feedback Section if available
+                      if (_topic!.lecturerFeedback != null && _topic!.lecturerFeedback!.isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight.withOpacity(0.4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.feedback_outlined, size: 18, color: AppColors.primary),
+                                  SizedBox(width: 8),
+                                  Text('Catatan / Catatan Revisi Dosen:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _topic!.lecturerFeedback!,
+                                style: const TextStyle(fontSize: 13, color: AppColors.slate800, height: 1.4),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // Lecturer Action Bar
+                      if (isLecturer && (_topic!.status == TopicStatus.submitted || _topic!.status == TopicStatus.underReview || _topic!.status == TopicStatus.draft)) ...[
+                        const Text('Aksi Review Dosen', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900)),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AppButton(
+                                label: 'Setujui',
+                                onPressed: () => _handleLecturerReview('APPROVED'),
+                                type: ButtonType.primary,
+                                isLoading: _isActionLoading,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: AppButton(
+                                label: 'Revisi',
+                                onPressed: () => _handleLecturerReview('REVISION'),
+                                type: ButtonType.secondary,
+                                isLoading: _isActionLoading,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: AppButton(
+                                label: 'Tolak',
+                                onPressed: () => _handleLecturerReview('REJECTED'),
+                                type: ButtonType.danger,
+                                isLoading: _isActionLoading,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Penerapan Algoritma Deep Learning untuk Deteksi Penyakit Daun Padi Berbasis Citra Digital',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.slate900),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Oleh: Ahmad Fauzi (NIM: 2021001)', style: TextStyle(fontSize: 12, color: AppColors.slate600)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Content Sections
-            _DetailSection(
-              title: 'Latar Belakang',
-              content: 'Sektor pertanian menghadapi tantangan besar terkait penyakit tanaman yang menurunkan hasil panen hingga 30%. Pendeteksian dini secara otomatis menggunakan kamera smartphone dapat membantu petani mengidentifikasi penyakit secara tepat.',
-            ),
-            const SizedBox(height: 12),
-            _DetailSection(
-              title: 'Rumusan Masalah',
-              content: '1. Bagaimana merancang arsitektur model Convolutional Neural Network (CNN) yang ringan untuk mendeteksi penyakit daun padi?\n2. Berapa tingkat akurasi model yang dihasilkan?',
-            ),
-            const SizedBox(height: 12),
-            _DetailSection(
-              title: 'Rencana Metodologi',
-              content: 'Dataset citra sebanyak 2.500 foto, augmentasi data, training model menggunakan MobileNetV3 dengan transfer learning, evaluasi precision, recall, dan F1-Score.',
-            ),
-            const SizedBox(height: 24),
-
-            // Lecturer Action Bar
-            if (isLecturer) ...[
-              const Text('Aksi Review Dosen', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900)),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: AppButton(
-                      label: 'Setujui',
-                      onPressed: () => _handleLecturerReview('APPROVED'),
-                      type: ButtonType.primary,
-                      isLoading: _isLoading,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: AppButton(
-                      label: 'Revisi',
-                      onPressed: () => _handleLecturerReview('REVISION'),
-                      type: ButtonType.secondary,
-                      isLoading: _isLoading,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: AppButton(
-                      label: 'Tolak',
-                      onPressed: () => _handleLecturerReview('REJECTED'),
-                      type: ButtonType.danger,
-                      isLoading: _isLoading,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
+                ),
     );
   }
 }

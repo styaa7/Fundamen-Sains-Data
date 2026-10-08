@@ -9,7 +9,7 @@ class LoadingShimmer extends StatelessWidget {
   const LoadingShimmer({
     super.key,
     this.width = double.infinity,
-    required this.height,
+    this.height = 100,
     this.borderRadius = 8,
   });
 

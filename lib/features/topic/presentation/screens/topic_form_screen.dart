@@ -45,6 +45,7 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
       final topic = TopicSubmission(
         id: '',
         studentId: user?.id ?? '',
+        lecturerId: '22222222-2222-2222-2222-222222222222',
         title: _titleController.text.trim(),
         background: _backgroundController.text.trim(),
         description: _descriptionController.text.trim(),

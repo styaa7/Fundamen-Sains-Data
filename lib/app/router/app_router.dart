@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/screens/splash_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
@@ -7,6 +6,7 @@ import '../../features/dashboard/presentation/screens/lecturer_dashboard_screen.
 import '../../features/dashboard/presentation/screens/admin_dashboard_screen.dart';
 import '../../features/topic/presentation/screens/topic_form_screen.dart';
 import '../../features/topic/presentation/screens/topic_detail_screen.dart';
+import '../../features/topic/presentation/screens/topic_list_screen.dart';
 import '../../features/consultation/presentation/screens/consultation_booking_screen.dart';
 import '../../features/consultation/presentation/screens/consultation_list_screen.dart';
 import '../../features/progress/presentation/screens/progress_timeline_screen.dart';
@@ -32,6 +32,10 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/student/topic',
+      builder: (context, state) => const TopicListScreen(),
+    ),
+    GoRoute(
+      path: '/student/topic/new',
       builder: (context, state) => const TopicFormScreen(),
     ),
     GoRoute(
@@ -66,7 +70,7 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/lecturer/submissions',
-      builder: (context, state) => const TopicDetailScreen(topicId: 'demo-topic-id'),
+      builder: (context, state) => const TopicListScreen(),
     ),
     GoRoute(
       path: '/lecturer/consultations',

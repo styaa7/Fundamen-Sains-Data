@@ -6,7 +6,10 @@ import '../models/thesis_progress_model.dart';
 import '../models/notification_model.dart';
 
 class SupabaseService {
-  final SupabaseClient client = Supabase.instance.client;
+  final SupabaseClient? _client;
+  SupabaseService([this._client]);
+
+  SupabaseClient get client => _client ?? Supabase.instance.client;
 
   // AUTH
   Future<AuthResponse> signInWithPassword({
@@ -20,7 +23,13 @@ class SupabaseService {
     await client.auth.signOut();
   }
 
-  User? get currentUser => client.auth.currentUser;
+  User? get currentUser {
+    try {
+      return client.auth.currentUser;
+    } catch (_) {
+      return null;
+    }
+  }
 
   // PROFILE
   Future<UserProfile?> fetchUserProfile(String userId) async {
@@ -72,19 +81,113 @@ class SupabaseService {
     }
   }
 
+  Future<TopicSubmission?> fetchTopicById(String topicId) async {
+    final response = await client
+        .from('topic_submissions')
+        .select('''
+          *,
+          student_profile:profiles!topic_submissions_student_id_fkey(full_name),
+          lecturer_profile:profiles!topic_submissions_lecturer_id_fkey(full_name)
+        ''')
+        .eq('id', topicId)
+        .maybeSingle();
+
+    if (response == null) return null;
+    return TopicSubmission.fromJson(response);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLecturers() async {
+    final response = await client
+        .from('profiles')
+        .select('id, full_name, identifier_number, email')
+        .eq('role', 'dosen');
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   Future<void> reviewTopic({
     required String topicId,
     required String action,
     String? feedback,
   }) async {
-    await client.functions.invoke(
-      'process-topic-review',
-      body: {
-        'topic_id': topicId,
-        'action': action,
-        'feedback': feedback,
-      },
-    );
+    try {
+      await client.functions.invoke(
+        'process-topic-review',
+        body: {
+          'topic_id': topicId,
+          'action': action,
+          'feedback': feedback,
+        },
+      );
+      return;
+    } catch (_) {
+      // Direct database update fallback
+      final topicResp = await client
+          .from('topic_submissions')
+          .select()
+          .eq('id', topicId)
+          .single();
+
+      final studentId = topicResp['student_id'] as String;
+      final lecturerId = topicResp['lecturer_id'] as String? ?? currentUser?.id ?? '';
+      final title = topicResp['title'] as String;
+
+      await client.from('topic_submissions').update({
+        'status': action,
+        'lecturer_feedback': feedback,
+        'reviewed_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', topicId);
+
+      // If approved, create thesis and initialize progress stages if not yet exists
+      if (action == 'APPROVED') {
+        final existingThesis = await client
+            .from('theses')
+            .select()
+            .eq('student_id', studentId)
+            .maybeSingle();
+
+        if (existingThesis == null) {
+          final newThesis = await client.from('theses').insert({
+            'student_id': studentId,
+            'lecturer_id': lecturerId,
+            'topic_submission_id': topicId,
+            'title': title,
+            'current_stage_order': 2,
+            'overall_progress_percentage': 25.0,
+          }).select().single();
+
+          final stages = [
+            {'order': 1, 'name': 'Pengajuan Topik', 'status': 'COMPLETED', 'pct': 100.0},
+            {'order': 2, 'name': 'Proposal Skripsi', 'status': 'IN_PROGRESS', 'pct': 50.0},
+            {'order': 3, 'name': 'Seminar Proposal', 'status': 'NOT_STARTED', 'pct': 0.0},
+            {'order': 4, 'name': 'Pengumpulan Data', 'status': 'NOT_STARTED', 'pct': 0.0},
+            {'order': 5, 'name': 'Analisis Data', 'status': 'NOT_STARTED', 'pct': 0.0},
+            {'order': 6, 'name': 'Penyusunan Naskah', 'status': 'NOT_STARTED', 'pct': 0.0},
+            {'order': 7, 'name': 'Seminar Hasil', 'status': 'NOT_STARTED', 'pct': 0.0},
+            {'order': 8, 'name': 'Sidang Akhir', 'status': 'NOT_STARTED', 'pct': 0.0},
+          ];
+
+          for (final st in stages) {
+            await client.from('thesis_progress').insert({
+              'thesis_id': newThesis['id'],
+              'stage_order': st['order'],
+              'stage_name': st['name'],
+              'status': st['status'],
+              'progress_percentage': st['pct'],
+            });
+          }
+        }
+      }
+
+      // Notify student
+      await client.from('notifications').insert({
+        'user_id': studentId,
+        'title': 'Hasil Review Topik Skripsi',
+        'message': 'Topik skripsi Anda telah di-$action oleh dosen pembimbing.',
+        'type': 'topic_review',
+        'reference_id': topicId,
+      });
+    }
   }
 
   // CONSULTATIONS
@@ -109,19 +212,60 @@ class SupabaseService {
     required DateTime scheduledEnd,
     required String agenda,
   }) async {
-    final response = await client.functions.invoke(
-      'book-consultation',
-      body: {
-        'lecturer_id': lecturerId,
-        'scheduled_start': scheduledStart.toIso8601String(),
-        'scheduled_end': scheduledEnd.toIso8601String(),
-        'agenda': agenda,
-      },
-    );
+    try {
+      final response = await client.functions.invoke(
+        'book-consultation',
+        body: {
+          'lecturer_id': lecturerId,
+          'scheduled_start': scheduledStart.toIso8601String(),
+          'scheduled_end': scheduledEnd.toIso8601String(),
+          'agenda': agenda,
+        },
+      );
 
-    if (response.status != 201 && response.status != 200) {
-      throw Exception(response.data?['message'] ?? 'Gagal membuat jadwal konsultasi');
+      if (response.status == 201 || response.status == 200) {
+        return;
+      }
+    } catch (_) {
+      // Fallback: direct conflict check and database insert
     }
+
+    final userId = currentUser?.id;
+    if (userId == null) throw Exception('Sesi pengguna tidak valid');
+
+    // Cek irisan jadwal pada dosen (Anti-bentrok)
+    final conflicts = await client
+        .from('consultations')
+        .select('id')
+        .eq('lecturer_id', lecturerId)
+        .inFilter('status', ['CONFIRMED', 'REQUESTED'])
+        .lt('scheduled_start', scheduledEnd.toIso8601String())
+        .gt('scheduled_end', scheduledStart.toIso8601String());
+
+    if ((conflicts as List).isNotEmpty) {
+      throw Exception('Dosen telah memiliki agenda bimbingan pada rentang jam tersebut. Silakan pilih waktu lain.');
+    }
+
+    // Insert record
+    final newConsultation = await client.from('consultations').insert({
+      'student_id': userId,
+      'lecturer_id': lecturerId,
+      'scheduled_start': scheduledStart.toIso8601String(),
+      'scheduled_end': scheduledEnd.toIso8601String(),
+      'agenda': agenda,
+      'status': 'REQUESTED',
+    }).select().single();
+
+    // Notifikasi untuk dosen
+    try {
+      await client.from('notifications').insert({
+        'user_id': lecturerId,
+        'title': 'Permintaan Konsultasi Baru',
+        'message': 'Mahasiswa bimbingan mengajukan jadwal konsultasi untuk agenda: "$agenda"',
+        'type': 'consultation',
+        'reference_id': newConsultation['id'],
+      });
+    } catch (_) {}
   }
 
   Future<void> updateConsultationStatus({

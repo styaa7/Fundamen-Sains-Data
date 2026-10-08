@@ -130,6 +130,69 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 18),
                     ],
 
+                    // Quick Role Selector for Easy Testing
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.slate100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.touch_app_outlined, size: 16, color: AppColors.primary),
+                              SizedBox(width: 6),
+                              Text('Pilih Akun Demo (1-Tap):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.slate700)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ActionChip(
+                                  label: const Text('👤 Mahasiswa', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                  backgroundColor: AppColors.white,
+                                  onPressed: () {
+                                    _emailController.text = 'mahasiswa@kampus.ac.id';
+                                    _passwordController.text = 'password123';
+                                    setState(() {});
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: ActionChip(
+                                  label: const Text('👨‍🏫 Dosen', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                  backgroundColor: AppColors.white,
+                                  onPressed: () {
+                                    _emailController.text = 'dosen@kampus.ac.id';
+                                    _passwordController.text = 'password123';
+                                    setState(() {});
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: ActionChip(
+                                  label: const Text('⚙️ Admin', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                  backgroundColor: AppColors.white,
+                                  onPressed: () {
+                                    _emailController.text = 'admin@kampus.ac.id';
+                                    _passwordController.text = 'password123';
+                                    setState(() {});
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     AppTextField(
                       label: 'Email Kampus',
                       hint: 'nama@universitas.ac.id',

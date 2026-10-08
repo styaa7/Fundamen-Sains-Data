@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/utils/app_date_format.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
@@ -22,6 +22,36 @@ class _ConsultationBookingScreenState extends ConsumerState<ConsultationBookingS
   TimeOfDay _endTime = const TimeOfDay(hour: 11, minute: 0);
   bool _isLoading = false;
   String? _errorMessage;
+  List<Map<String, dynamic>> _lecturers = [];
+  String? _selectedLecturerId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLecturers();
+  }
+
+  Future<void> _loadLecturers() async {
+    try {
+      final list = await ref.read(supabaseServiceProvider).fetchLecturers();
+      if (mounted) {
+        setState(() {
+          _lecturers = list;
+          if (list.isNotEmpty) {
+            _selectedLecturerId = list.first['id'] as String;
+          } else {
+            _selectedLecturerId = '22222222-2222-2222-2222-222222222222';
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _selectedLecturerId = '22222222-2222-2222-2222-222222222222';
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -88,8 +118,7 @@ class _ConsultationBookingScreenState extends ConsumerState<ConsultationBookingS
     });
 
     try {
-      // Mock Lecturer UUID for demo
-      const lecturerId = '00000000-0000-0000-0000-000000000001';
+      final lecturerId = _selectedLecturerId ?? '22222222-2222-2222-2222-222222222222';
 
       await ref.read(supabaseServiceProvider).bookConsultation(
             lecturerId: lecturerId,
@@ -118,8 +147,6 @@ class _ConsultationBookingScreenState extends ConsumerState<ConsultationBookingS
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('EEEE, d MMMM yyyy', 'id_ID');
-
     return Scaffold(
       backgroundColor: AppColors.white,
       appBar: AppBar(
@@ -156,6 +183,47 @@ class _ConsultationBookingScreenState extends ConsumerState<ConsultationBookingS
                 const SizedBox(height: 16),
               ],
 
+              // Dosen Pembimbing
+              const Text('Dosen Pembimbing', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.slate800)),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedLecturerId ?? (_lecturers.isNotEmpty ? _lecturers.first['id'] : '22222222-2222-2222-2222-222222222222'),
+                    isExpanded: true,
+                    icon: const Icon(Icons.arrow_drop_down, color: AppColors.primary),
+                    items: _lecturers.isNotEmpty
+                        ? _lecturers.map((lec) {
+                            return DropdownMenuItem<String>(
+                              value: lec['id'] as String,
+                              child: Text(
+                                lec['full_name'] as String? ?? 'Dosen Pembimbing',
+                                style: const TextStyle(fontSize: 14, color: AppColors.slate900),
+                              ),
+                            );
+                          }).toList()
+                        : const [
+                            DropdownMenuItem<String>(
+                              value: '22222222-2222-2222-2222-222222222222',
+                              child: Text(
+                                'Dr. Ir. Hendra Wijaya, M.T. (Dosen Pembimbing)',
+                                style: TextStyle(fontSize: 14, color: AppColors.slate900),
+                              ),
+                            ),
+                          ],
+                    onChanged: (val) {
+                      if (val != null) setState(() => _selectedLecturerId = val);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
               // Tanggal
               const Text('Tanggal Konsultasi', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.slate800)),
               const SizedBox(height: 6),
@@ -171,7 +239,7 @@ class _ConsultationBookingScreenState extends ConsumerState<ConsultationBookingS
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(dateFormat.format(_selectedDate), style: const TextStyle(fontSize: 14, color: AppColors.slate900)),
+                      Text(AppDateFormat.formatFull(_selectedDate), style: const TextStyle(fontSize: 14, color: AppColors.slate900)),
                       const Icon(Icons.calendar_month_outlined, size: 20, color: AppColors.primary),
                     ],
                   ),

@@ -44,7 +44,6 @@ class AppButton extends StatelessWidget {
         border = null;
         break;
       case ButtonType.primary:
-      default:
         bg = AppColors.primary;
         fg = AppColors.white;
         border = null;

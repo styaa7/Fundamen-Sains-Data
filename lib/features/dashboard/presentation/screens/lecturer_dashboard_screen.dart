@@ -46,7 +46,7 @@ class LecturerDashboardScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 1. Metric Counters
-            const Row(
+            Row(
               children: [
                 Expanded(
                   child: _MetricCard(
@@ -55,9 +55,10 @@ class LecturerDashboardScreen extends ConsumerWidget {
                     subValue: 'Kuota: 10',
                     icon: Icons.people_outline_rounded,
                     color: AppColors.primary,
+                    onTap: () => context.push('/lecturer/students'),
                   ),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Expanded(
                   child: _MetricCard(
                     title: 'Review Topik',
@@ -65,16 +66,18 @@ class LecturerDashboardScreen extends ConsumerWidget {
                     subValue: 'Menunggu',
                     icon: Icons.assignment_outlined,
                     color: AppColors.warning,
+                    onTap: () => context.push('/lecturer/submissions'),
                   ),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Expanded(
                   child: _MetricCard(
                     title: 'Konsultasi',
                     value: '2',
-                    subValue: 'Hari ini',
+                    subValue: 'Jadwal',
                     icon: Icons.event_available_outlined,
                     color: AppColors.success,
+                    onTap: () => context.push('/lecturer/consultations'),
                   ),
                 ),
               ],
@@ -162,6 +165,7 @@ class _MetricCard extends StatelessWidget {
   final String subValue;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   const _MetricCard({
     required this.title,
@@ -169,12 +173,14 @@ class _MetricCard extends StatelessWidget {
     required this.subValue,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
       padding: const EdgeInsets.all(14),
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

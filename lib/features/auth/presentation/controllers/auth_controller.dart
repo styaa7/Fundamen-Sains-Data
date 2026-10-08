@@ -41,15 +41,15 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> checkInitialSession() async {
     state = state.copyWith(isLoading: true);
-    final user = _service.currentUser;
-    if (user != null) {
-      try {
+    try {
+      final user = _service.currentUser;
+      if (user != null) {
         final profile = await _service.fetchUserProfile(user.id);
         state = state.copyWith(isLoading: false, userProfile: profile);
-      } catch (e) {
-        state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      } else {
+        state = state.copyWith(isLoading: false);
       }
-    } else {
+    } catch (e) {
       state = state.copyWith(isLoading: false);
     }
   }
