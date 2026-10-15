@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Aplikasi memerlukan izin untuk menambahkan jadwal bimbingan ke kalender Anda.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>Aplikasi memerlukan izin untuk menyimpan jadwal bimbingan skripsi ke kalender HP Anda.</string>
 </dict>
 </plist>

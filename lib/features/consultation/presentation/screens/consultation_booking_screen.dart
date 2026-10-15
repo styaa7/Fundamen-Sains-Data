@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/models/consultation_model.dart';
 import '../../../../core/utils/app_date_format.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/widgets/calendar_sync_sheet.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
 
 class ConsultationBookingScreen extends ConsumerStatefulWidget {
@@ -128,13 +130,64 @@ class _ConsultationBookingScreenState extends ConsumerState<ConsultationBookingS
           );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.success,
-            content: Text('Permintaan jadwal bimbingan berhasil diajukan!'),
+        final lecturerObj = _lecturers.cast<Map<String, dynamic>?>().firstWhere(
+          (l) => l?['id'] == lecturerId,
+          orElse: () => null,
+        );
+        final lecturerName = lecturerObj?['full_name'] as String? ?? 'Dosen Pembimbing';
+
+        final createdConsultation = Consultation(
+          id: 'new',
+          studentId: '',
+          lecturerId: lecturerId,
+          lecturerName: lecturerName,
+          scheduledStart: startDateTime,
+          scheduledEnd: endDateTime,
+          agenda: _agendaController.text.trim(),
+          status: ConsultationStatus.requested,
+          createdAt: DateTime.now(),
+        );
+
+        final shouldSync = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: AppColors.success, size: 22),
+                SizedBox(width: 8),
+                Text('Jadwal Diajukan!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ],
+            ),
+            content: const Text(
+              'Pengajuan jadwal bimbingan Anda berhasil dikirim. Ingin menyimpan jadwal ini ke aplikasi kalender HP sekarang?',
+              style: TextStyle(fontSize: 13, color: AppColors.slate700, height: 1.4),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Nanti Saja', style: TextStyle(color: AppColors.slate500)),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.event_available_rounded, size: 16),
+                label: const Text('Simpan ke Kalender HP'),
+              ),
+            ],
           ),
         );
-        context.pop();
+
+        if (mounted) {
+          context.pop();
+          if (shouldSync == true) {
+            CalendarSyncSheet.syncDirectly(context, createdConsultation);
+          }
+        }
       }
     } catch (e) {
       if (mounted) {

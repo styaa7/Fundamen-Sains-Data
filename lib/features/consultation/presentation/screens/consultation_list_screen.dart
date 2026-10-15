@@ -10,6 +10,7 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/empty_state_view.dart';
 import '../../../../core/widgets/loading_shimmer.dart';
 import '../../../../core/widgets/status_badge.dart';
+import '../../../../core/widgets/calendar_sync_sheet.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
 
 class ConsultationListScreen extends ConsumerStatefulWidget {
@@ -83,6 +84,18 @@ class _ConsultationListScreenState extends ConsumerState<ConsultationListScreen>
         SnackBar(
           backgroundColor: AppColors.success,
           content: Text('Status konsultasi diubah ke $status'),
+          action: status == 'CONFIRMED'
+              ? SnackBarAction(
+                  label: '+ Kalender',
+                  textColor: AppColors.white,
+                  onPressed: () {
+                    try {
+                      final item = _consultations.firstWhere((c) => c.id == id);
+                      CalendarSyncSheet.show(context, item);
+                    } catch (_) {}
+                  },
+                )
+              : null,
         ),
       );
       _loadConsultations();
@@ -147,11 +160,13 @@ class _ConsultationListScreenState extends ConsumerState<ConsultationListScreen>
               feedback: noteController.text.trim(),
               actionItems: actionItemsController.text.trim(),
             );
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(backgroundColor: AppColors.success, content: Text('Catatan bimbingan berhasil disimpan!')),
         );
         _loadConsultations();
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(backgroundColor: AppColors.danger, content: Text('Error: $e')),
         );
@@ -306,6 +321,43 @@ class _ConsultationListScreenState extends ConsumerState<ConsultationListScreen>
                             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
                       ],
                     ],
+                  ),
+                ),
+              ],
+
+              // Calendar Sync Button
+              if (item.status == ConsultationStatus.confirmed || item.status == ConsultationStatus.requested) ...[
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () => CalendarSyncSheet.show(context, item),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.event_available_rounded, size: 16, color: AppColors.primary),
+                            SizedBox(width: 8),
+                            Text(
+                              'Sinkron ke Kalender HP',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded, size: 12, color: AppColors.primary),
+                      ],
+                    ),
                   ),
                 ),
               ],
