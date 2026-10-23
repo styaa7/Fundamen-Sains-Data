@@ -1357,6 +1357,14 @@ class _StudentDashboardScreenState extends ConsumerState<StudentDashboardScreen>
         'bg': const Color(0xFFFFFBEB),
         'route': '/student/progress',
       },
+      {
+        'title': 'ML Analytics',
+        'shortTitle': 'Analytics',
+        'icon': Icons.insights_rounded,
+        'color': const Color(0xFFEC4899),
+        'bg': const Color(0xFFFDF2F8),
+        'route': '/analytics',
+      },
     ];
 
     return AppCard(

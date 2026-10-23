@@ -1,0 +1,184 @@
+{
+  "linear_regression": {
+    "mae": 9.05,
+    "rmse": 11.64,
+    "r2_score": 0.9786,
+    "coefficients": {
+      "current_stage_order": 0.4963,
+      "overall_progress_percentage": 1.0839,
+      "days_since_start": -85.3614,
+      "total_consultations": -2.8565,
+      "total_revisions": 10.2026,
+      "avg_days_per_stage": 78.0135
+    },
+    "intercept": 115.499
+  },
+  "logistic_regression": {
+    "accuracy": 0.89,
+    "precision": 0.9012,
+    "recall": 0.9605,
+    "f1_score": 0.9299,
+    "confusion_matrix": [
+      [
+        16,
+        8
+      ],
+      [
+        3,
+        73
+      ]
+    ],
+    "coefficients": {
+      "current_stage_order": 1.2065,
+      "overall_progress_percentage": 2.0949,
+      "days_since_start": -0.384,
+      "consultation_frequency": 0.5859,
+      "revision_count": -1.7705,
+      "stage_completion_rate": 1.4745
+    }
+  },
+  "naive_bayes": {
+    "accuracy": 0.9667,
+    "confusion_matrix": [
+      [
+        22,
+        2,
+        0
+      ],
+      [
+        0,
+        21,
+        0
+      ],
+      [
+        0,
+        0,
+        15
+      ]
+    ],
+    "per_class": {
+      "APPROVED": {
+        "precision": 1.0,
+        "recall": 0.9167,
+        "f1_score": 0.9565
+      },
+      "REVISION": {
+        "precision": 0.913,
+        "recall": 1.0,
+        "f1_score": 0.9545
+      },
+      "REJECTED": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      }
+    },
+    "vocabulary_size": 1095
+  },
+  "svm": {
+    "accuracy": 1.0,
+    "confusion_matrix": [
+      [
+        12,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        12,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        11,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        9,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        12,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        12,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        12
+      ]
+    ],
+    "per_class": {
+      "AI/ML": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "IoT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "Mobile Dev": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "Web Dev": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "Data Science": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "Cybersecurity": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      },
+      "Game Dev": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0
+      }
+    },
+    "vocabulary_size": 1266
+  }
+}

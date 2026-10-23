@@ -18,6 +18,7 @@ import '../../features/notifications/presentation/screens/notification_center_sc
 import '../../features/admin/presentation/screens/admin_users_screen.dart';
 import '../../features/admin/presentation/screens/admin_topics_screen.dart';
 import '../../features/admin/presentation/screens/admin_theses_overview_screen.dart';
+import '../../features/analytics/presentation/screens/analytics_dashboard_screen.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
@@ -110,6 +111,12 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/lecturer/notifications',
       builder: (context, state) => const NotificationCenterScreen(),
+    ),
+
+    // ANALYTICS ROUTE (accessible from all roles)
+    GoRoute(
+      path: '/analytics',
+      builder: (context, state) => const AnalyticsDashboardScreen(),
     ),
 
     // ADMIN ROUTES

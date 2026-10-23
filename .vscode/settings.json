@@ -1,0 +1,6 @@
+{
+  "python.analysis.extraPaths": [
+    "./ml_api"
+  ],
+  "python.defaultInterpreterPath": "C:/Users/Acer/AppData/Local/Programs/Python/Python313/python.exe"
+}

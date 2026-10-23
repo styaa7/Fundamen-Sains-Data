@@ -27,6 +27,18 @@ Dokumen spesifikasi telah dipecah secara modular menjadi 14 bagian:
 
 ---
 
+## 🤖 Laporan Teknis Machine Learning (Fundamen Sains Data)
+
+Dokumentasi lengkap penerapan 4 model Machine Learning SkripsiFlow:
+
+| Bagian | Dokumen Laporan | Format Tersedia | Model / Algoritma | Fokus Permasalahan |
+| :---: | :--- | :---: | :--- | :--- |
+| **01** | **Prediksi Estimasi Waktu & Risiko Keterlambatan Skripsi** | [DOCX](laporan_ml/01_laporan_regresi_linear_dan_logistik.docx) \| [MD](laporan_ml/01_laporan_regresi_linear_dan_logistik.md) | **Linear Regression** & **Logistic Regression** | Prediksi kuantitatif sisa hari pengerjaan ($R^2=0.9786$) dan *early-warning* klasifikasi risiko keterlambatan (Akurasi $89.00\%$). |
+| **02** | **Pra-Evaluasi Kualitas Topik Proposal Skripsi** | [DOCX](laporan_ml/02_laporan_naive_bayes_kualitas_topik.docx) \| [MD](laporan_ml/02_laporan_naive_bayes_kualitas_topik.md) | **Multinomial Naive Bayes** + TF-IDF | Penyaringan otomatis proposal judul (*APPROVED*, *REVISION*, *REJECTED*) dengan heuristik anti-gibberish (Akurasi $96.67\%$). |
+| **03** | **Kategorisasi Bidang Peminatan & Rekomendasi Dosen** | [DOCX](laporan_ml/03_laporan_svm_kategorisasi_bidang_topik.docx) \| [MD](laporan_ml/03_laporan_svm_kategorisasi_bidang_topik.md) | **Support Vector Machine (SVM - RBF)** | Klasifikasi multikelas ke 7 bidang riset dan pemetaan otomatis ke dosen pembimbing pakar (Akurasi $100.0\%$). |
+
+---
+
 ## 🚀 Tech Stack Ringkas
 - **Frontend / Client**: Flutter 3.x (Dart 3.x)
 - **Backend & Database**: Supabase (PostgreSQL 15+, Supabase Auth, Storage, Realtime)
