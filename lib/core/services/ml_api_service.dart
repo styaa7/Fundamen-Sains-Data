@@ -1,23 +1,35 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+
+final mlApiServiceProvider = Provider<MlApiService>((ref) {
+  final service = MlApiService();
+  ref.onDispose(() => service.dispose());
+  return service;
+});
 
 /// Service to communicate with the SkripsiFlow ML API (FastAPI backend).
 ///
-/// Base URL defaults to localhost:8000 for development.
+/// Base URL defaults to localhost:8000 for development (or 10.0.2.2 for Android emulator).
 /// Change [baseUrl] in production deployment.
 class MlApiService {
-  // For Android emulator use 10.0.2.2, for iOS simulator use localhost
-  // For physical device, use the machine's IP on the local network
-  static const String _defaultBaseUrl = 'http://localhost:8000';
+  static String get _defaultBaseUrl {
+    if (kIsWeb) return 'http://localhost:8000';
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return 'http://10.0.2.2:8000';
+    }
+    return 'http://localhost:8000';
+  }
 
   final String baseUrl;
   final http.Client _client;
 
   MlApiService({
-    this.baseUrl = _defaultBaseUrl,
+    String? baseUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl ?? _defaultBaseUrl,
+        _client = client ?? http.Client();
 
   // ===========================================================================
   // 1. LINEAR REGRESSION — Prediksi Waktu Penyelesaian

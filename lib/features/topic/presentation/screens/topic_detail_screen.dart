@@ -9,6 +9,7 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/loading_shimmer.dart';
 import '../../../../core/widgets/status_badge.dart';
+import '../../../../core/services/ml_api_service.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
 
 class TopicDetailScreen extends ConsumerStatefulWidget {
@@ -25,6 +26,12 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
   bool _isLoadingTopic = true;
   bool _isActionLoading = false;
   String? _errorMessage;
+
+  // AI Insights State
+  bool _isAnalyzingAi = false;
+  TopicQualityPrediction? _qualityPrediction;
+  TopicCategoryPrediction? _categoryPrediction;
+  String? _aiError;
 
   @override
   void initState() {
@@ -255,6 +262,10 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
                       ),
                       const SizedBox(height: 16),
 
+                      // AI Insights (Naive Bayes & SVM)
+                      _buildAiInsightCard(),
+                      const SizedBox(height: 16),
+
                       // Lecturer Feedback Section if available
                       if (_topic!.lecturerFeedback != null && _topic!.lecturerFeedback!.isNotEmpty) ...[
                         Container(
@@ -373,6 +384,178 @@ class _TopicDetailScreenState extends ConsumerState<TopicDetailScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+
+  Future<void> _runAiAnalysis() async {
+    if (_topic == null) return;
+    setState(() {
+      _isAnalyzingAi = true;
+      _aiError = null;
+    });
+
+    try {
+      final mlApi = ref.read(mlApiServiceProvider);
+      final results = await Future.wait([
+        mlApi.predictTopicQuality(
+          title: _topic!.title,
+          background: _topic!.background.isNotEmpty ? _topic!.background : _topic!.title,
+          problemFormulation: _topic!.problemFormulation.isNotEmpty ? _topic!.problemFormulation : _topic!.title,
+          methodology: _topic!.methodology.isNotEmpty ? _topic!.methodology : _topic!.title,
+        ),
+        mlApi.predictTopicCategory(
+          title: _topic!.title,
+          description: _topic!.description.isNotEmpty ? _topic!.description : (_topic!.background.isNotEmpty ? _topic!.background : _topic!.title),
+          methodology: _topic!.methodology,
+        ),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _qualityPrediction = results[0] as TopicQualityPrediction;
+          _categoryPrediction = results[1] as TopicCategoryPrediction;
+          _isAnalyzingAi = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isAnalyzingAi = false;
+          _aiError = 'Gagal memuat analisis AI ($e). Pastikan server ml_api sedang aktif di localhost:8000.';
+        });
+      }
+    }
+  }
+
+  Widget _buildAiInsightCard() {
+    final hasResults = _qualityPrediction != null && _categoryPrediction != null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasResults ? const Color(0xFF818CF8) : AppColors.border,
+          width: hasResults ? 1.5 : 1,
+        ),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5), size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI Insight (Naive Bayes & SVM)',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.slate900),
+                    ),
+                    Text(
+                      'Evaluasi kelayakan akademik dan kategorisasi otomatis',
+                      style: TextStyle(fontSize: 11, color: AppColors.slate500),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (!hasResults && !_isAnalyzingAi)
+            AppButton(
+              label: 'Jalankan Analisis AI',
+              icon: Icons.psychology_rounded,
+              onPressed: _runAiAnalysis,
+              type: ButtonType.primary,
+            ),
+          if (_isAnalyzingAi)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+                    SizedBox(width: 10),
+                    Text('Mengevaluasi dengan Naive Bayes & SVM...', style: TextStyle(fontSize: 12, color: AppColors.slate600)),
+                  ],
+                ),
+              ),
+            ),
+          if (_aiError != null) ...[
+            const SizedBox(height: 8),
+            Text(_aiError!, style: const TextStyle(fontSize: 12, color: AppColors.danger)),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _runAiAnalysis,
+              child: const Text('Coba Lagi', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+          if (hasResults) ...[
+            const Divider(height: 20, color: AppColors.border),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: const Color(0xFF4F46E5), borderRadius: BorderRadius.circular(6)),
+                  child: const Text('SVM', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Kategori: ${_categoryPrediction!.predictedCategory}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                ),
+                const Spacer(),
+                Text(
+                  '${(_categoryPrediction!.confidence * 100).toStringAsFixed(1)}% Match',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF4F46E5)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: const Color(0xFF0284C7), borderRadius: BorderRadius.circular(6)),
+                  child: const Text('NAIVE BAYES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Kelayakan: ${_qualityPrediction!.predictedLabel}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _qualityPrediction!.predictedStatus == 'APPROVED'
+                        ? const Color(0xFF059669)
+                        : (_qualityPrediction!.predictedStatus == 'REVISION' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.slate200)),
+              child: Text(
+                _qualityPrediction!.feedback,
+                style: const TextStyle(fontSize: 12, color: AppColors.slate700, height: 1.35),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

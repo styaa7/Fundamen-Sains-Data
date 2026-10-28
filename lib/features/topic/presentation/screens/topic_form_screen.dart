@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/models/topic_model.dart';
+import '../../../../core/services/ml_api_service.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../auth/presentation/controllers/auth_controller.dart';
@@ -30,6 +31,12 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
   final _objectiveController = TextEditingController();
   final _methodologyController = TextEditingController();
   bool _isSubmitting = false;
+
+  // AI Assistant State (Naive Bayes & SVM)
+  bool _isAnalyzingAi = false;
+  TopicQualityPrediction? _qualityPrediction;
+  TopicCategoryPrediction? _categoryPrediction;
+  String? _aiAnalysisError;
 
   TopicSubmission? _editingTopic;
   bool _isLoadingInitial = false;
@@ -126,8 +133,153 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
     super.dispose();
   }
 
+  /// Menjalankan analisis paralel model Naive Bayes (Kualitas) & SVM (Kategori)
+  Future<void> _analyzeTopicWithAi() async {
+    final title = _titleController.text.trim();
+    final background = _backgroundController.text.trim();
+    final description = _descriptionController.text.trim();
+    final problem = _problemController.text.trim();
+    final methodology = _methodologyController.text.trim();
+
+    if (title.length < 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.warning,
+          content: Text('Ketik judul minimal 5 karakter terlebih dahulu untuk analisis AI.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isAnalyzingAi = true;
+      _aiAnalysisError = null;
+    });
+
+    try {
+      final mlApi = ref.read(mlApiServiceProvider);
+
+      // Jalankan Naive Bayes dan SVM secara paralel
+      final results = await Future.wait([
+        mlApi.predictTopicQuality(
+          title: title,
+          background: background.isNotEmpty ? background : title,
+          problemFormulation: problem.isNotEmpty ? problem : title,
+          methodology: methodology.isNotEmpty ? methodology : title,
+        ),
+        mlApi.predictTopicCategory(
+          title: title,
+          description: description.isNotEmpty ? description : (background.isNotEmpty ? background : title),
+          methodology: methodology,
+        ),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _qualityPrediction = results[0] as TopicQualityPrediction;
+          _categoryPrediction = results[1] as TopicCategoryPrediction;
+          _isAnalyzingAi = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.success,
+            content: Text('✨ Analisis AI selesai! Hasil Naive Bayes & SVM telah siap.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isAnalyzingAi = false;
+          _aiAnalysisError = 'Gagal terhubung ke ML API ($e). Pastikan server FastAPI di ml_api sedang aktif di localhost:8000.';
+        });
+      }
+    }
+  }
+
+  void _selectRecommendedLecturer(String lecturerName) {
+    final cleanName = lecturerName.toLowerCase();
+    for (final lec in _lecturers) {
+      final fullName = (lec['full_name'] as String? ?? '').toLowerCase();
+      final parts = fullName.split(RegExp(r'[\s,.]+')).where((p) => p.length > 3);
+      bool isMatch = false;
+      for (final p in parts) {
+        if (cleanName.contains(p)) {
+          isMatch = true;
+          break;
+        }
+      }
+      if (isMatch) {
+        setState(() {
+          _selectedLecturerId = lec['id'] as String;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.success,
+            content: Text('Dosen pembimbing disetel: ${lec['full_name']}'),
+          ),
+        );
+        return;
+      }
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.info,
+        content: Text('Rekomendasi SVM: $lecturerName. Silakan sesuaikan di dropdown calon dosen.'),
+      ),
+    );
+  }
+
   Future<void> _submitTopic(TopicStatus targetStatus) async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Peringatan jika model Naive Bayes memprediksi REJECTED saat submit resmi
+    if (targetStatus == TopicStatus.submitted &&
+        _qualityPrediction != null &&
+        _qualityPrediction!.predictedStatus == 'REJECTED') {
+      final shouldProceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Peringatan Kualitas Topik',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Model Naive Bayes memprediksi usulan topik ini berpotensi DITOLAK (REJECTED) dengan catatan:\n\n'
+            '${_qualityPrediction!.feedback}\n\n'
+            'Apakah Anda ingin tetap mengirimkan pengajuan sekarang atau menyempurnakan usulan topik terlebih dahulu?',
+            style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.slate700),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Perbaiki Dulu'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Tetap Ajukan'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldProceed != true) return;
+    }
 
     setState(() => _isSubmitting = true);
     final user = ref.read(authControllerProvider).userProfile;
@@ -364,6 +516,11 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
                 maxLines: 3,
                 validator: (val) => (val == null || val.isEmpty) ? 'Wajib diisi' : null,
               ),
+              const SizedBox(height: 24),
+
+              // === ASISTEN AI (NAIVE BAYES & SVM) ===
+              _buildAiAssistantSection(),
+
               const SizedBox(height: 28),
               Row(
                 children: [
@@ -393,4 +550,483 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
       ),
     );
   }
+
+  // ===========================================================================
+  // AI Assistant Section Widgets
+  // ===========================================================================
+
+  Widget _buildAiAssistantSection() {
+    final hasResults = _qualityPrediction != null && _categoryPrediction != null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasResults ? const Color(0xFF818CF8) : AppColors.border,
+          width: hasResults ? 1.5 : 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color.fromRGBO(79, 70, 229, 0.05),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: Color(0xFF4F46E5),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Asisten AI: Evaluasi & Kategori',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.slate900,
+                      ),
+                    ),
+                    Text(
+                      'Pra-evaluasi kelayakan (Naive Bayes) & kategori bidang (SVM)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.slate500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          AppButton(
+            label: _isAnalyzingAi
+                ? 'Menganalisis dengan AI...'
+                : (hasResults ? 'Analisis Ulang dengan AI' : 'Cek Kualitas & Kategori AI'),
+            icon: Icons.psychology_rounded,
+            onPressed: _isAnalyzingAi ? null : _analyzeTopicWithAi,
+            type: hasResults ? ButtonType.outline : ButtonType.primary,
+            isLoading: _isAnalyzingAi,
+          ),
+          if (_aiAnalysisError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.dangerLight,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _aiAnalysisError!,
+                      style: const TextStyle(fontSize: 12, color: AppColors.danger, height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (hasResults) ...[
+            const SizedBox(height: 16),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 16),
+            _buildSvmCard(_categoryPrediction!),
+            const SizedBox(height: 16),
+            _buildNaiveBayesCard(_qualityPrediction!),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSvmCard(TopicCategoryPrediction cat) {
+    IconData getCategoryIcon(String category) {
+      switch (category.toLowerCase()) {
+        case 'ai/ml':
+          return Icons.memory_rounded;
+        case 'iot':
+          return Icons.sensors_rounded;
+        case 'mobile dev':
+          return Icons.phone_android_rounded;
+        case 'web dev':
+          return Icons.language_rounded;
+        case 'data science':
+          return Icons.insights_rounded;
+        case 'cybersecurity':
+          return Icons.security_rounded;
+        case 'game dev':
+          return Icons.sports_esports_rounded;
+        default:
+          return Icons.category_rounded;
+      }
+    }
+
+    final catIcon = getCategoryIcon(cat.predictedCategory);
+    final confidencePercent = (cat.confidence * 100).toStringAsFixed(1);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC7D2FE)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4F46E5),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'MODEL SVM',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Kategorisasi Bidang & Dosen',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$confidencePercent% Match',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF4F46E5)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F3FF),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFDDD6FE)),
+            ),
+            child: Row(
+              children: [
+                Icon(catIcon, color: const Color(0xFF7C3AED), size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Bidang Penelitian Terdeteksi:', style: TextStyle(fontSize: 11, color: AppColors.slate500)),
+                      Text(
+                        cat.predictedCategory,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF5B21B6)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('Top Bidang Relevan:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.slate600)),
+          const SizedBox(height: 6),
+          ...cat.top3Categories.map((item) {
+            final name = item['category'] as String;
+            final prob = (item['probability'] as num).toDouble();
+            final isPrimary = name == cat.predictedCategory;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 85,
+                    child: Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: isPrimary ? FontWeight.w700 : FontWeight.w500,
+                        color: isPrimary ? AppColors.slate900 : AppColors.slate600,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: prob,
+                        minHeight: 6,
+                        backgroundColor: AppColors.slate100,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isPrimary ? const Color(0xFF4F46E5) : const Color(0xFFA5B4FC),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 45,
+                    child: Text(
+                      '${(prob * 100).toStringAsFixed(1)}%',
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: isPrimary ? FontWeight.w700 : FontWeight.w500,
+                        color: isPrimary ? const Color(0xFF4F46E5) : AppColors.slate500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          if (cat.recommendedLecturers.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: AppColors.slate100),
+            const SizedBox(height: 8),
+            const Text(
+              'Rekomendasi Dosen Pembimbing (SVM):',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.slate700),
+            ),
+            const SizedBox(height: 6),
+            ...cat.recommendedLecturers.map((lec) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.slate50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.slate200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.school_outlined, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        lec,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.slate800),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => _selectRecommendedLecturer(lec),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF2FF),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFC7D2FE)),
+                        ),
+                        child: const Text(
+                          'Pilih Dosen',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNaiveBayesCard(TopicQualityPrediction qual) {
+    Color statusColor;
+    Color statusBg;
+    IconData statusIcon;
+    String statusLabel;
+
+    switch (qual.predictedStatus) {
+      case 'APPROVED':
+        statusColor = const Color(0xFF059669);
+        statusBg = const Color(0xFFECFDF5);
+        statusIcon = Icons.check_circle_rounded;
+        statusLabel = 'Layak Diterima (Approved)';
+        break;
+      case 'REVISION':
+        statusColor = const Color(0xFFD97706);
+        statusBg = const Color(0xFFFFFBEB);
+        statusIcon = Icons.warning_amber_rounded;
+        statusLabel = 'Perlu Revisi (Revision)';
+        break;
+      default:
+        statusColor = const Color(0xFFDC2626);
+        statusBg = const Color(0xFFFEF2F2);
+        statusIcon = Icons.cancel_rounded;
+        statusLabel = 'Berisiko Ditolak (Rejected)';
+    }
+
+    final pApproved = (qual.probabilities['APPROVED'] ?? 0.0) * 100;
+    final pRevision = (qual.probabilities['REVISION'] ?? 0.0) * 100;
+    final pRejected = (qual.probabilities['REJECTED'] ?? 0.0) * 100;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'MODEL NAIVE BAYES',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Pra-Evaluasi Kelayakan Topik',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.slate800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: statusBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(statusIcon, color: statusColor, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Prediksi Status Kelayakan:', style: TextStyle(fontSize: 11, color: AppColors.slate500)),
+                      Text(
+                        statusLabel,
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: statusColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('Distribusi Probabilitas:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.slate600)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildProbabilityPill('Approved', pApproved, const Color(0xFF10B981)),
+              const SizedBox(width: 8),
+              _buildProbabilityPill('Revision', pRevision, const Color(0xFFF59E0B)),
+              const SizedBox(width: 8),
+              _buildProbabilityPill('Rejected', pRejected, const Color(0xFFEF4444)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.slate50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.slate200),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.tips_and_updates_outlined, size: 16, color: Color(0xFF0284C7)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    qual.feedback,
+                    style: const TextStyle(fontSize: 12, color: AppColors.slate700, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProbabilityPill(String label, double value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '${value.toStringAsFixed(1)}%',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
