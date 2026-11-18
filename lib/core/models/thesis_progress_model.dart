@@ -91,6 +91,7 @@ class Thesis {
   final int currentStageOrder;
   final double overallProgressPercentage;
   final List<ThesisProgressStage> stages;
+  final DateTime? createdAt;
 
   Thesis({
     required this.id,
@@ -101,6 +102,7 @@ class Thesis {
     this.currentStageOrder = 1,
     this.overallProgressPercentage = 12.5,
     this.stages = const [],
+    this.createdAt,
   });
 
   factory Thesis.fromJson(Map<String, dynamic> json) {
@@ -119,6 +121,7 @@ class Thesis {
       currentStageOrder: json['current_stage_order'] as int? ?? 1,
       overallProgressPercentage: (json['overall_progress_percentage'] as num?)?.toDouble() ?? 12.5,
       stages: parsedStages,
+      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'] as String) : null,
     );
   }
 }

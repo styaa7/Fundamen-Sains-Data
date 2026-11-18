@@ -133,6 +133,25 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
     super.dispose();
   }
 
+  void _fillDummyTopicData() {
+    setState(() {
+      _titleController.text = 'Implementasi Algoritma Support Vector Machine dan Naive Bayes untuk Klasifikasi Topik Skripsi Otomatis';
+      _backgroundController.text = 'Proses seleksi dan peninjauan usulan judul skripsi sering memakan waktu lama. Penerapan teknologi text mining dan machine learning dapat membantu mempercepat klasifikasi bidang dan pra-evaluasi kelayakan secara objektif.';
+      _descriptionController.text = 'Sistem berbasis web dan mobile yang mengklasifikasikan usulan topik skripsi mahasiswa ke dalam kategori bidang keahlian dan menguji tingkat kelayakan format.';
+      _problemController.text = '1. Bagaimana merancang model SVM dan Naive Bayes untuk klasifikasi teks berbahasa Indonesia?\n2. Seberapa tinggi akurasi dan presisi model dalam mengelompokkan kategori topik skripsi?';
+      _objectiveController.text = 'Mengembangkan modul klasifikasi topik skripsi otomatis berbasis machine learning dengan akurasi di atas 85% untuk membantu efisiensi dosen dan mahasiswa.';
+      _methodologyController.text = 'Pengumpulan dataset teks dari naskah usulan skripsi, preprocessing (tokenizing, stopword removal), pembobotan TF-IDF, training model SVM dan Multinomial Naive Bayes, serta evaluasi k-fold cross validation.';
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: AppColors.primary,
+        content: Text('✨ Contoh usulan topik fiktif berhasil dimuat! Silakan coba klik tombol AI di bawah.'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
   /// Menjalankan analisis paralel model Naive Bayes (Kualitas) & SVM (Kategori)
   Future<void> _analyzeTopicWithAi() async {
     final title = _titleController.text.trim();
@@ -421,9 +440,23 @@ class _TopicFormScreenState extends ConsumerState<TopicFormScreen> {
                 const SizedBox(height: 16),
               ],
               // Pemilihan Calon Dosen Pembimbing
-              const Text(
-                'Calon Dosen Pembimbing',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.slate800),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Calon Dosen Pembimbing',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.slate800),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: _fillDummyTopicData,
+                    icon: const Icon(Icons.flash_on_rounded, size: 14, color: AppColors.primary),
+                    label: const Text('Isi Contoh Cepat', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
               Container(
