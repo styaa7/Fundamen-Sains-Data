@@ -314,6 +314,7 @@ def convert_all():
         "01_laporan_regresi_linear_dan_logistik",
         "02_laporan_naive_bayes_kualitas_topik",
         "03_laporan_svm_kategorisasi_bidang_topik",
+        "04_laporan_integrasi_linear_dan_logistic_regression",
     ]
     
     print("=" * 60)
